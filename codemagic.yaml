@@ -1,0 +1,54 @@
+workflows:
+  android_cli:
+    name: Android CI (Debug + Release)
+    max_build_duration: 60
+    instance_type: linux_x2
+    environment:
+      vars:
+        NODE_VERSION: "18"
+      groups:
+        - keystore_credentials # Expects CM_KEYSTORE, CM_KEYSTORE_PASSWORD, CM_KEY_ALIAS, CM_KEY_PASSWORD (optional if using debug signing)
+    cache:
+      cache_paths:
+        - $CM_BUILD_DIR/mobile/node_modules
+        - $HOME/.gradle/caches
+        - $HOME/.gradle/wrapper
+    scripts:
+      - name: Set up Node
+        script: |
+          . $NVM_DIR/nvm.sh
+          nvm install $NODE_VERSION
+          nvm use $NODE_VERSION
+          node -v
+          yarn -v
+      - name: Install Android SDK components
+        script: |
+          yes | sdkmanager --licenses
+          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+      - name: Install JS dependencies
+        script: |
+          cd mobile
+          yarn install --frozen-lockfile
+      - name: Configure Android signing (if provided)
+        script: |
+          if [ -n "$CM_KEYSTORE" ]; then
+            cd mobile/android
+            echo "$CM_KEYSTORE" | base64 --decode > app/keystore.jks
+            cat <<EOF > app/key.properties
+            storePassword=$CM_KEYSTORE_PASSWORD
+            keyPassword=$CM_KEY_PASSWORD
+            keyAlias=$CM_KEY_ALIAS
+            storeFile=keystore.jks
+            EOF
+          fi
+      - name: Assemble Debug
+        script: |
+          cd mobile/android
+          ./gradlew clean assembleDebug
+      - name: Assemble Release
+        script: |
+          cd mobile/android
+          ./gradlew assembleRelease
+    artifacts:
+      - mobile/android/app/build/outputs/**/*.apk
+      - mobile/android/app/build/outputs/**/*.aab
